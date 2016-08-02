@@ -3,9 +3,9 @@
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 #include <avr/power.h>
+#include <avr/wdt.h>
 #include <nRF24L01.h>
 #include <RF24.h>
-#include <avr/wdt.h>
 #include <printf.h>
 
 RF24 radio(7,8);
@@ -16,42 +16,76 @@ RF24 radio(7,8);
 #define buzzerPin 6
 #define currPin A0
 
-const char token[] = "abcabcabc0"; // token
+const char token[] = "abcabcabc1"; // token
 
 const uint64_t pipes[2] = {0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL};
 // pipe.1: read | pipe.2: write -> oposite with hub
 
-int state,buzzerVal;
+int state,buzzerVal,cycle = 0,cycle1 = 0;
 
 unsigned long time1;
 
+float ampe;
+
 bool timeToSleep = false;
 
-struct smartbots {
+struct trans {
+  byte type;
   char token[11];
   boolean state;
-  float curr;
-};
+  float data;
+} trans;
 
-smartbots trans,recei;
+struct recei {
+  char token[11];
+  boolean state;
+} recei;
 
-// watchdog interrupt ----------------------------------------------------------------------------------------
+// Watchdog Interrupt -------------------------------------------------------------------
+
 ISR(WDT_vect) {
-  wdt_disable();  // disable watchdog
+  cycle++;
+  
+  if (cycle == 15) {
+    handle_current();
+    cycle1++;
+    cycle = 0;
+  }
+
+  if (cycle1 == 60) {
+    trans.type = 2; // update data
+    strncpy(trans.token,token,10);
+    trans.state = state;
+    trans.data = ampe*220/1000;
+
+    Serial.print(trans.data);
+    Serial.println(" kwh");
+  
+    radio.stopListening();
+    radio.write(&trans,sizeof(trans)); // Check Ack? Send till success?
+    radio.startListening();
+    
+    cycle1 = 0;
+    ampe = 0;
+  }
 }
 
 void myWatchdogEnable(const byte interval) {
+
 //  sleep bit patterns:
 //  1 second:  0b000110
 //  2 seconds: 0b000111
 //  4 seconds: 0b100000
 //  8 seconds: 0b100001
-  MCUSR = 0;                          // reset various flags
-  WDTCSR |= 0b00011000;               // see docs, set WDCE, WDE
-  WDTCSR =  0b01000000 | interval;    // set WDIE, and appropriate delay
+
+  MCUSR = 0;
+  WDTCSR |= 0b00011000;
+  WDTCSR =  0b01000000 | interval;
 
   wdt_reset();
 } 
+
+//----------------------------------------------------------------------------------------
 
 float mapfloat(long x, long in_min, long in_max, long out_min, long out_max) {
  return (float)(x - in_min) * (out_max - out_min) / (float)(in_max - in_min) + out_min;
@@ -71,7 +105,6 @@ void go_to_sleep() {
 
 void turn_bot(bool xState) {
   if (xState != state) {
-
     state = xState;
     
     if (state) {
@@ -100,8 +133,10 @@ void turn_bot(bool xState) {
 
 void send_msg(bool xState, bool type) {
 
+  trans.type = 1; // update state
   strncpy(trans.token,token,10);
   trans.state = xState;
+  trans.data = 0;
 
   if (type) {
     radio.stopListening();
@@ -172,6 +207,10 @@ void read_state() {
 
 void setup()
 {
+  wdt_disable();
+
+  myWatchdogEnable(0b100000);
+
   Serial.begin(9600);
 
   read_state();
@@ -196,11 +235,13 @@ void setup()
   
   timeToSleep = true;
 }
-
 //----------------------------------------------------------------------------------------
 
 void handle_current() {
   float current = abs(mapfloat(analogRead(currPin),0,1024,-30,30));
+
+  ampe = ampe + current*60;
+  
   Serial.print("Read current: ");
   Serial.println(current);
 }
@@ -208,7 +249,8 @@ void handle_current() {
 //----------------------------------------------------------------------------------------
 
 void handle_buzzer() {
-  if (buzzerVal == 1) {
+  if (buzzerVal == 1)
+  {
     analogWrite(buzzerPin, 255);
     buzzerVal = 0;
     Serial.println("BEEP");
@@ -221,20 +263,16 @@ void handle_buzzer() {
 void loop() {
   
   //----------------------------------------------------------------------------------------
+
   if ((unsigned long)(millis()-time1) > 100)
   {
     handle_buzzer();
     time1 = millis();
   }
-  
-  //----------------------------------------------------------------------------------------
-  if (timeToSleep) {
-    for (byte i = 0; i <1; i++) {
-      myWatchdogEnable(0b100000);
-    }
 
-    handle_current();
-  
+  //----------------------------------------------------------------------------------------
+
+  if (timeToSleep) {    
     delay(200);
     go_to_sleep();
   }
