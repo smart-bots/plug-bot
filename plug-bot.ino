@@ -23,6 +23,8 @@ const uint64_t pipes[2] = {0xF0F0F0F0E1LL, 0xF0F0F0F0D2LL};
 
 int state,buzzerVal,cycle = 0,cycle1 = 0;
 
+unsigned long last_interrupt_time = 0;
+
 unsigned long time1;
 
 float ampe;
@@ -160,7 +162,7 @@ void handle_bot(bool xState, bool type) {
 //----------------------------------------------------------------------------------------
 
 void check_radio(void) {
-  
+
   bool tx,fail,rx;
   radio.whatHappened(tx,fail,rx);
   
@@ -175,6 +177,7 @@ void check_radio(void) {
  
     if (strcmp(recei.token,token) == 0) {
       handle_bot(recei.state,0);
+      last_interrupt_time = millis();
     }
   }
 }
@@ -182,9 +185,8 @@ void check_radio(void) {
 //----------------------------------------------------------------------------------------
 
 void toggle_bot() {
-  static unsigned long last_interrupt_time = 0;
   unsigned long interrupt_time = millis();
-  if (interrupt_time - last_interrupt_time >= 100) 
+  if (interrupt_time - last_interrupt_time > 100) 
   {
     Serial.println("Btn pushed!");
     handle_bot(!state,1);
@@ -204,6 +206,8 @@ void read_state() {
   Serial.print("Read state: ");
   Serial.println(state);
 }
+
+//----------------------------------------------------------------------------------------
 
 void setup()
 {
@@ -229,6 +233,8 @@ void setup()
   pinMode(buzzerPin, OUTPUT);
   pinMode(relayPin, OUTPUT);
   pinMode(btnPin, INPUT_PULLUP);
+
+  digitalWrite(relayPin, state);
 
   attachInterrupt(digitalPinToInterrupt(nrfIrqPin), check_radio, LOW);
   attachInterrupt(digitalPinToInterrupt(btnPin), toggle_bot, FALLING);
@@ -264,7 +270,7 @@ void loop() {
   
   //----------------------------------------------------------------------------------------
 
-  if ((unsigned long)(millis()-time1) > 100)
+  if ((unsigned long)(millis()-time1) >= 100)
   {
     handle_buzzer();
     time1 = millis();
@@ -273,7 +279,7 @@ void loop() {
   //----------------------------------------------------------------------------------------
 
   if (timeToSleep) {    
-    delay(200);
+    delay(100);
     go_to_sleep();
   }
 }
