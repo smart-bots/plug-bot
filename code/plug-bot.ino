@@ -31,17 +31,18 @@ float ampe;
 
 bool timeToSleep = false;
 
+struct recei {
+  byte type;
+  char token[11];
+  short state;
+} recei;
+
 struct trans {
   byte type;
   char token[11];
-  boolean state;
+  short state;
   float data;
 } trans;
-
-struct recei {
-  char token[11];
-  boolean state;
-} recei;
 
 // Watchdog Interrupt -------------------------------------------------------------------
 
@@ -105,8 +106,9 @@ void go_to_sleep() {
 
 //----------------------------------------------------------------------------------------
 
-void turn_bot(bool xState) {
+void handle_bot(bool xState, bool type) {
   if (xState != state) {
+      
     state = xState;
     
     if (state) {
@@ -129,34 +131,28 @@ void turn_bot(bool xState) {
       Serial.println("Already OFF");
     }
   }
-}
-
-//----------------------------------------------------------------------------------------
-
-void send_msg(bool xState, bool type) {
-
-  trans.type = 1; // update state
+    
+  if (type == 1) {
+    trans.type = 3;
+    
+  } else {
+    trans.type = 1;
+  }
   strncpy(trans.token,token,10);
   trans.state = xState;
   trans.data = 0;
 
-  if (type) {
-    radio.stopListening();
-    radio.write(&trans,sizeof(trans)); // Check Ack? Send till success?
-    radio.startListening();
-  } else {
-    radio.writeAckPayload(1,&trans,sizeof(trans));
-  }
+  Serial.println("Sent: ");
+  Serial.println(trans.type);
+  Serial.println(trans.token);
+  Serial.println(trans.state);
+  Serial.println(trans.data);
 
-  Serial.println("Msg sent!");
-}
+  radio.stopListening();
+  radio.write(&trans,sizeof(trans));
+  radio.startListening();
 
-//----------------------------------------------------------------------------------------
-
-void handle_bot(bool xState, bool type) {
-  turn_bot(xState);
-  send_msg(xState,type);
-  Serial.println("Handled bot!");
+//  Serial.println("Handled bot!");
 }
 
 //----------------------------------------------------------------------------------------
@@ -186,7 +182,7 @@ void check_radio(void) {
 
 void toggle_bot() {
   unsigned long interrupt_time = millis();
-  if (interrupt_time - last_interrupt_time > 100) 
+  if (interrupt_time - last_interrupt_time >= 200) 
   {
     Serial.println("Btn pushed!");
     handle_bot(!state,1);
@@ -211,9 +207,9 @@ void read_state() {
 
 void setup()
 {
-  wdt_disable();
+//  wdt_disable();
 
-  myWatchdogEnable(0b100000);
+//  myWatchdogEnable(0b100000);
 
   Serial.begin(9600);
 
@@ -279,7 +275,7 @@ void loop() {
   //----------------------------------------------------------------------------------------
 
   if (timeToSleep) {    
-    delay(100);
+    delay(200);
     go_to_sleep();
   }
 }
